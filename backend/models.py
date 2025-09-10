@@ -10,12 +10,46 @@ from enum import Enum
 
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Boolean, ForeignKey, 
-    JSON, Float, Enum as SQLEnum, Index, CheckConstraint, UniqueConstraint
+    JSON, Float, Enum as SQLEnum, Index, CheckConstraint, UniqueConstraint,
+    TypeDecorator, CHAR
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
+
+# Custom GUID type for cross-database compatibility
+class GUID(TypeDecorator):
+    """
+    Platform-independent GUID type.
+    Uses PostgreSQL's UUID type, otherwise uses CHAR(36).
+    """
+    impl = CHAR
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'postgresql':
+            return dialect.type_descriptor(PG_UUID(as_uuid=True))
+        else:
+            return dialect.type_descriptor(CHAR(36))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if not isinstance(value, uuid.UUID):
+            try:
+                return str(uuid.UUID(value))
+            except (ValueError, TypeError):
+                return str(value)
+        return str(value) if dialect.name != 'postgresql' else value
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        if dialect.name == 'postgresql':
+            return value  # Already a UUID object
+        else:
+            return uuid.UUID(value)
 
 # Enums
 class MoodLevel(str, Enum):
@@ -61,10 +95,10 @@ class AIResponse(Base):
     __tablename__ = "ai_responses"
 
     # Primary key as UUID
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4, index=True)
     
     # Foreign key to ChatMessage (required)
-    message_id = Column(UUID(as_uuid=True), ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)
+    message_id = Column(GUID(), ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)
 
     # Response content
     content = Column(Text, nullable=False)
@@ -149,7 +183,7 @@ class User(Base):
     __tablename__ = "users"
     
     # Primary key as UUID
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4, index=True)
     
     # Authentication fields
     email = Column(String(255), unique=True, nullable=False, index=True)
@@ -240,10 +274,10 @@ class EmotionRecord(Base):
     __tablename__ = "emotion_records"
     
     # Primary key as UUID
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4, index=True)
     
     # Foreign key to User
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     
     # Emotion detection data
     emotion = Column(SQLEnum(EmotionType), nullable=False)
@@ -287,11 +321,11 @@ class PeerConnection(Base):
     __tablename__ = "peer_connections"
     
     # Primary key as UUID
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4, index=True)
     
     # Foreign keys to User
-    requester_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    target_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    requester_id = Column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    target_id = Column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     
     # Connection data
     status = Column(SQLEnum(ConnectionStatus), default=ConnectionStatus.PENDING, nullable=False)
@@ -335,10 +369,10 @@ class CrisisAlert(Base):
     __tablename__ = "crisis_alerts"
     
     # Primary key as UUID
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4, index=True)
     
     # Foreign key to User
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     
     # Crisis assessment data
     risk_level = Column(SQLEnum(RiskLevel), nullable=False)
@@ -383,11 +417,11 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
     
     # Primary key as UUID
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4, index=True)
     
     # Foreign keys to User
-    sender_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    receiver_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    sender_id = Column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    receiver_id = Column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     
     # Message content (encrypted)
     content = Column(Text, nullable=False)  # Encrypted text content

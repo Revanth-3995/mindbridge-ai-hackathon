@@ -14,7 +14,7 @@ class Settings:
     # Database Configuration
     DATABASE_URL: str = config(
         "DATABASE_URL", 
-        default="postgresql://mindbridge_user:dev_password_123@localhost:5432/mindbridge_db"
+        default="postgresql://user:password@localhost:5432/mindbridge"
     )
     SQLITE_URL: str = config("SQLITE_URL", default="sqlite:///./dev.db")
     USE_SQLITE_FALLBACK: bool = config("USE_SQLITE_FALLBACK", default=True, cast=bool)
@@ -49,7 +49,7 @@ class Settings:
     DB_POOL_SIZE: int = config("DB_POOL_SIZE", default=10, cast=int)
     DB_MAX_OVERFLOW: int = config("DB_MAX_OVERFLOW", default=20, cast=int)
     DB_POOL_TIMEOUT: int = config("DB_POOL_TIMEOUT", default=30, cast=int)
-    DB_POOL_RECYCLE: int = config("DB_POOL_RECYCLE", default=3600, cast=int)
+    DB_POOL_RECYCLE: int = config("DB_POOL_RECYCLE", default=1800, cast=int)
     
     # CORS Configuration
     CORS_ORIGINS: list = config(

@@ -11,15 +11,15 @@ from contextlib import contextmanager
 from urllib.parse import urlparse
 
 from sqlalchemy import create_engine, event, text, inspect
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import Session
 from sqlalchemy.pool import QueuePool, StaticPool
 from sqlalchemy.exc import (
     OperationalError, DisconnectionError, ProgrammingError, 
     IntegrityError, DatabaseError
 )
 from sqlalchemy.engine import Engine
-from sqlalchemy.engine.events import PoolEvents
+
 
 from config import settings
 
@@ -50,11 +50,7 @@ postgresql_engine_kwargs = {
 # Database engine configuration for SQLite
 sqlite_engine_kwargs = {
     "poolclass": StaticPool,
-    "pool_size": 1,
-    "max_overflow": 0,
-    "pool_timeout": 30,
-    "pool_recycle": -1,
-    "pool_pre_ping": True,
+    "pool_pre_ping": False,  # Disable pre-ping for SQLite
     "echo": settings.DEBUG,
     "connect_args": {
         "check_same_thread": False,
@@ -80,10 +76,16 @@ def create_database_engine() -> Engine:
     
     # Check environment variables for database preference
     database_url = os.getenv("DATABASE_URL", settings.DATABASE_URL)
+    sqlite_url = os.getenv("SQLITE_URL", settings.SQLITE_URL)
     use_sqlite_fallback = os.getenv("USE_SQLITE_FALLBACK", str(settings.USE_SQLITE_FALLBACK)).lower() == "true"
     
+    # Ensure SQLite URL is not None or empty
+    if not sqlite_url or sqlite_url.strip() == "":
+        sqlite_url = "sqlite:///./dev.db"
+        logger.info(f"SQLite URL was empty, using default: {sqlite_url}")
+    
     # Try PostgreSQL first if not explicitly using SQLite
-    if not use_sqlite_fallback and database_url.startswith("postgresql://"):
+    if not use_sqlite_fallback and database_url and database_url.startswith("postgresql://"):
         logger.info("Attempting PostgreSQL connection...")
         
         for attempt in range(MAX_RETRIES):
@@ -93,7 +95,7 @@ def create_database_engine() -> Engine:
                     logger.info("✅ Successfully connected to PostgreSQL database")
                     return engine
                 else:
-                    raise OperationalError("Connection test failed", None, None)
+                    raise OperationalError("PostgreSQL connection test failed", None, None)
                     
             except Exception as e:
                 retry_delay = RETRY_DELAY_BASE * (2 ** attempt)
@@ -108,11 +110,12 @@ def create_database_engine() -> Engine:
                         logger.info("Falling back to SQLite...")
                         break
                     else:
-                        raise e
+                        # Even if fallback is disabled, try SQLite as last resort
+                        logger.warning("PostgreSQL failed, attempting SQLite fallback anyway...")
+                        break
     
     # Fallback to SQLite
     logger.info("Attempting SQLite connection...")
-    sqlite_url = os.getenv("SQLITE_URL", settings.SQLITE_URL)
     
     for attempt in range(MAX_RETRIES):
         try:
@@ -132,6 +135,26 @@ def create_database_engine() -> Engine:
                 time.sleep(retry_delay)
             else:
                 logger.error("SQLite connection failed after all retries")
+                # Try to create the SQLite file if it doesn't exist
+                try:
+                    logger.info("Attempting to create SQLite database file...")
+                    import sqlite3
+                    db_path = sqlite_url.replace("sqlite:///", "")
+                    if not os.path.exists(db_path):
+                        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+                        # Create empty database file
+                        conn = sqlite3.connect(db_path)
+                        conn.close()
+                        logger.info(f"Created SQLite database file: {db_path}")
+                    
+                    # Try one more time
+                    if test_database_connection(sqlite_url, sqlite_engine_kwargs):
+                        engine = create_engine(sqlite_url, **sqlite_engine_kwargs)
+                        logger.info("✅ Successfully connected to SQLite database after file creation")
+                        return engine
+                except Exception as create_error:
+                    logger.error(f"Failed to create SQLite database: {create_error}")
+                
                 raise e
     
     # This should never be reached, but just in case
@@ -261,6 +284,13 @@ def init_db():
         # Import all models to ensure they are registered
         from models import User, EmotionRecord, PeerConnection, CrisisAlert, ChatMessage, AIResponse
         
+        # For SQLite, ensure the database file exists
+        if "sqlite" in str(engine.url):
+            db_path = str(engine.url).replace("sqlite:///", "")
+            if not os.path.exists(db_path):
+                os.makedirs(os.path.dirname(db_path), exist_ok=True)
+                logger.info(f"Created SQLite database directory for: {db_path}")
+        
         # Create all tables
         Base.metadata.create_all(bind=engine)
         
@@ -278,6 +308,12 @@ def init_db():
         
     except Exception as e:
         logger.error(f"❌ Failed to create database tables: {e}")
+        # Try to provide more helpful error information
+        if "sqlite" in str(engine.url):
+            db_path = str(engine.url).replace("sqlite:///", "")
+            logger.error(f"SQLite database path: {db_path}")
+            logger.error(f"Directory exists: {os.path.exists(os.path.dirname(db_path))}")
+            logger.error(f"File exists: {os.path.exists(db_path)}")
         raise
 
 def check_db_connection() -> bool:
@@ -287,14 +323,31 @@ def check_db_connection() -> bool:
             # Basic connectivity test
             conn.execute(text("SELECT 1"))
             
-            # Test transaction capability
-            trans = conn.begin()
-            try:
+            # Database-specific health checks
+            if "postgresql" in str(engine.url):
+                logger.debug("Running PostgreSQL health check...")
+                # Test transaction capability for PostgreSQL
+                trans = conn.begin()
+                try:
+                    conn.execute(text("SELECT 1"))
+                    trans.rollback()
+                except Exception:
+                    trans.rollback()
+                    raise
+                logger.debug("✅ PostgreSQL transaction test passed")
+                
+            elif "sqlite" in str(engine.url):
+                logger.debug("Running SQLite health check...")
+                # Test database integrity for SQLite
+                result = conn.execute(text("PRAGMA integrity_check")).fetchone()
+                if result and result[0] != "ok":
+                    raise Exception(f"SQLite integrity check failed: {result[0]}")
+                logger.debug("✅ SQLite integrity check passed")
+                
+            else:
+                logger.debug("Running generic database health check...")
+                # For other databases, just do basic connectivity test
                 conn.execute(text("SELECT 1"))
-                trans.rollback()
-            except Exception:
-                trans.rollback()
-                raise
             
             # Test table access if tables exist
             inspector = inspect(engine)
@@ -303,6 +356,7 @@ def check_db_connection() -> bool:
                 # Test querying a table
                 first_table = table_names[0]
                 conn.execute(text(f"SELECT COUNT(*) FROM {first_table} LIMIT 1"))
+                logger.debug(f"✅ Table access test passed for {first_table}")
         
         logger.debug("✅ Database health check passed")
         return True
