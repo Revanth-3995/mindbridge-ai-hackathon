@@ -11,7 +11,7 @@ import json
 
 from config import settings
 from database import get_db_context
-from models import User, ChatSession, Message, AIResponse
+from models import User, ChatMessage, PeerConnection, AIResponse
 from auth import get_current_user as get_current_user_from_token
 from celery_app import ai_task
 

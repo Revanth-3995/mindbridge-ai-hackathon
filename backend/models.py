@@ -56,6 +56,94 @@ class MessageType(str, Enum):
     SYSTEM = "system"
     EMERGENCY = "emergency"
 
+class AIResponse(Base):
+    """AI response model linked to chat messages."""
+    __tablename__ = "ai_responses"
+
+    # Primary key as UUID
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    
+    # Foreign key to ChatMessage (required)
+    message_id = Column(UUID(as_uuid=True), ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)
+
+    # Response content
+    content = Column(Text, nullable=False)
+    response_type = Column(String(50))
+    
+    # AI model information
+    model_name = Column(String(100), nullable=False)
+    model_version = Column(String(50))
+    temperature = Column(Float)
+    max_tokens = Column(Integer)
+    tokens_used = Column(Integer)
+    processing_time = Column(Float)
+    confidence_score = Column(Float)
+
+    # Analysis results
+    sentiment = Column(String(50))
+    emotions = Column(JSON)
+    topics = Column(JSON)
+    suggestions = Column(JSON)
+
+    # User feedback
+    is_helpful = Column(Boolean, default=False)
+    user_rating = Column(Integer)
+    feedback = Column(Text)
+
+    # Status flags
+    is_generated = Column(Boolean, default=True)
+    is_reviewed = Column(Boolean, default=False)
+    is_approved = Column(Boolean, default=False)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+
+    # Relationships
+    message = relationship("ChatMessage", back_populates="ai_responses")
+    
+    # Constraints
+    __table_args__ = (
+        CheckConstraint('confidence_score IS NULL OR (confidence_score >= 0.0 AND confidence_score <= 1.0)', name='confidence_score_range'),
+        CheckConstraint('user_rating IS NULL OR (user_rating >= 1 AND user_rating <= 5)', name='user_rating_range'),
+        CheckConstraint('length(content) > 0', name='content_not_empty'),
+        Index('idx_ai_response_message_created', 'message_id', 'created_at'),
+        Index('idx_ai_response_model_created', 'model_name', 'created_at'),
+        Index('idx_ai_response_helpful', 'is_helpful'),
+    )
+    
+    def __repr__(self):
+        return f"<AIResponse(id={self.id}, message_id={self.message_id}, model='{self.model_name}')>"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert AI response to dictionary for API responses."""
+        return {
+            "id": str(self.id),
+            "message_id": str(self.message_id),
+            "content": self.content,
+            "response_type": self.response_type,
+            "model_name": self.model_name,
+            "model_version": self.model_version,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "tokens_used": self.tokens_used,
+            "processing_time": self.processing_time,
+            "confidence_score": self.confidence_score,
+            "sentiment": self.sentiment,
+            "emotions": self.emotions,
+            "topics": self.topics,
+            "suggestions": self.suggestions,
+            "is_helpful": self.is_helpful,
+            "user_rating": self.user_rating,
+            "feedback": self.feedback,
+            "is_generated": self.is_generated,
+            "is_reviewed": self.is_reviewed,
+            "is_approved": self.is_approved,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class User(Base):
     """User model for authentication and profile management."""
     __tablename__ = "users"
@@ -314,6 +402,7 @@ class ChatMessage(Base):
     # Relationships
     sender = relationship("User", foreign_keys=[sender_id], back_populates="sent_messages")
     receiver = relationship("User", foreign_keys=[receiver_id], back_populates="received_messages")
+    ai_responses = relationship("AIResponse", back_populates="message", cascade="all, delete-orphan")
     
     # Constraints
     __table_args__ = (

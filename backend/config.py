@@ -6,6 +6,7 @@ Handles environment variables and application settings.
 from decouple import config
 from typing import Optional
 import os
+import secrets
 
 class Settings:
     """Application settings loaded from environment variables."""
@@ -22,7 +23,7 @@ class Settings:
     REDIS_URL: str = config("REDIS_URL", default="redis://localhost:6379")
     
     # JWT Configuration
-    SECRET_KEY: str = config("SECRET_KEY", default="your-secret-key-change-in-production")
+    SECRET_KEY: str = config("SECRET_KEY", default=secrets.token_urlsafe(32))
     ALGORITHM: str = config("ALGORITHM", default="HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = config("ACCESS_TOKEN_EXPIRE_MINUTES", default=30, cast=int)
     REFRESH_TOKEN_EXPIRE_DAYS: int = config("REFRESH_TOKEN_EXPIRE_DAYS", default=7, cast=int)
@@ -71,6 +72,8 @@ class Settings:
     # Rate Limiting
     RATE_LIMIT_REQUESTS: int = config("RATE_LIMIT_REQUESTS", default=100, cast=int)
     RATE_LIMIT_WINDOW: int = config("RATE_LIMIT_WINDOW", default=60, cast=int)
+    LOGIN_RATE_LIMIT_REQUESTS: int = config("LOGIN_RATE_LIMIT_REQUESTS", default=5, cast=int)
+    LOGIN_RATE_LIMIT_WINDOW: int = config("LOGIN_RATE_LIMIT_WINDOW", default=60, cast=int)
     
     def __init__(self):
         """Initialize settings and create necessary directories."""

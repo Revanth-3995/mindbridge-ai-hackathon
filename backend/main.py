@@ -17,7 +17,10 @@ import os
 from config import settings
 from database import init_db, check_db_connection, get_db_info
 from socketio_events import sio
-from auth import get_current_active_user, User
+from auth import (
+    get_current_active_user, User, router as auth_router,
+    SecurityMiddleware, RateLimitMiddleware
+)
 from celery_app import celery_app, health_check
 
 # Configure logging
@@ -95,9 +98,22 @@ app.add_middleware(
     allowed_hosts=["*"] if settings.DEBUG else ["localhost", "127.0.0.1"]
 )
 
+# Add security middleware
+app.add_middleware(SecurityMiddleware)
+
+# Add rate limiting middleware
+app.add_middleware(
+    RateLimitMiddleware,
+    calls=settings.RATE_LIMIT_REQUESTS,
+    period=settings.RATE_LIMIT_WINDOW
+)
+
 # Mount static files
 if os.path.exists(settings.UPLOAD_DIR):
     app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+
+# Include auth router
+app.include_router(auth_router)
 
 # Socket.IO integration
 from socketio import ASGIApp
@@ -179,8 +195,7 @@ async def api_status(current_user: User = Depends(get_current_active_user)):
     return {
         "status": "active",
         "user": {
-            "id": current_user.id,
-            "username": current_user.username,
+            "id": str(current_user.id),
             "email": current_user.email
         },
         "timestamp": datetime.utcnow().isoformat()
@@ -195,51 +210,22 @@ async def get_current_user_info(current_user: User = Depends(get_current_active_
         "timestamp": datetime.utcnow().isoformat()
     }
 
-# Chat session endpoints
-@app.get("/api/v1/sessions")
-async def get_user_sessions(current_user: User = Depends(get_current_active_user)):
-    """Get user's chat sessions."""
+# Chat message endpoints
+@app.get("/api/v1/messages")
+async def get_user_messages(current_user: User = Depends(get_current_active_user)):
+    """Get user's chat messages."""
     from database import get_db_context
-    from models import ChatSession
+    from models import ChatMessage
     
     with get_db_context() as db:
-        sessions = db.query(ChatSession).filter(
-            ChatSession.user_id == current_user.id,
-            ChatSession.is_active == True
-        ).order_by(ChatSession.last_activity.desc()).all()
+        messages = db.query(ChatMessage).filter(
+            (ChatMessage.sender_id == current_user.id) | 
+            (ChatMessage.receiver_id == current_user.id)
+        ).order_by(ChatMessage.created_at.desc()).limit(50).all()
         
         return {
-            "sessions": [session.to_dict() for session in sessions],
-            "count": len(sessions),
-            "timestamp": datetime.utcnow().isoformat()
-        }
-
-@app.post("/api/v1/sessions")
-async def create_session(
-    title: str,
-    description: str = None,
-    session_type: str = "general",
-    current_user: User = Depends(get_current_active_user)
-):
-    """Create a new chat session."""
-    from database import get_db_context
-    from models import ChatSession
-    
-    with get_db_context() as db:
-        session = ChatSession(
-            user_id=current_user.id,
-            title=title,
-            description=description,
-            session_type=session_type
-        )
-        
-        db.add(session)
-        db.commit()
-        db.refresh(session)
-        
-        return {
-            "session": session.to_dict(),
-            "message": "Session created successfully",
+            "messages": [message.to_dict() for message in messages],
+            "count": len(messages),
             "timestamp": datetime.utcnow().isoformat()
         }
 
