@@ -43,7 +43,8 @@ def create_database_engine():
                 engine = create_engine(settings.DATABASE_URL, **engine_kwargs)
                 # Test connection
                 with engine.connect() as conn:
-                    conn.execute("SELECT 1")
+                    from sqlalchemy import text
+                    conn.execute(text("SELECT 1"))
                 logger.info("Successfully connected to PostgreSQL database")
                 return engine
             else:
@@ -51,7 +52,8 @@ def create_database_engine():
                 engine = create_engine(settings.database_url, **engine_kwargs)
                 # Test connection
                 with engine.connect() as conn:
-                    conn.execute("SELECT 1")
+                    from sqlalchemy import text
+                    conn.execute(text("SELECT 1"))
                 db_type = "SQLite" if "sqlite" in settings.database_url else "PostgreSQL"
                 logger.info(f"Successfully connected to {db_type} database")
                 return engine
@@ -68,7 +70,8 @@ def create_database_engine():
                     try:
                         engine = create_engine(settings.SQLITE_URL, **engine_kwargs)
                         with engine.connect() as conn:
-                            conn.execute("SELECT 1")
+                            from sqlalchemy import text
+                            conn.execute(text("SELECT 1"))
                         logger.info("Successfully connected to SQLite fallback database")
                         return engine
                     except Exception as sqlite_error:
@@ -160,7 +163,9 @@ def check_db_connection() -> bool:
     """Check if database connection is healthy."""
     try:
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            from sqlalchemy import text
+            conn.execute(text("SELECT 1"))
+
         return True
     except Exception as e:
         logger.error(f"Database connection check failed: {e}")
@@ -170,7 +175,9 @@ def get_db_info() -> dict:
     """Get database connection information."""
     try:
         with engine.connect() as conn:
-            result = conn.execute("SELECT version()").fetchone()
+            from sqlalchemy import text
+            result = conn.execute(text("SELECT version()")).fetchone()
+
             return {
                 "connected": True,
                 "version": result[0] if result else "Unknown",

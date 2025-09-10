@@ -16,7 +16,7 @@ import os
 
 from config import settings
 from database import init_db, check_db_connection, get_db_info
-from websockets import sio
+from socketio_events import sio
 from auth import get_current_active_user, User
 from celery_app import celery_app, health_check
 
