@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@hookform/resolvers": "^5.2.1",
+    "next-auth": "^4.24.11",
+    "react-hook-form": "^7.62.0",
+    "yup": "^1.7.0"
+  }
+}
