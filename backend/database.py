@@ -152,7 +152,7 @@ def init_db():
     """Initialize database tables."""
     try:
         # Import all models to ensure they are registered
-        from models import User, ChatSession, Message, AIResponse
+        from models import User, EmotionRecord, PeerConnection, CrisisAlert, ChatMessage
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")
     except Exception as e:
