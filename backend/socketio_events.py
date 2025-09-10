@@ -334,8 +334,7 @@ async def broadcast_ai_response(session_id: int, ai_response: AIResponse):
     except Exception as e:
         logger.error(f"Error broadcasting AI response: {e}")
 
-# Celery task for AI response
-@ai_task
+# Function to trigger AI response
 def trigger_ai_response(session_id: int, message_id: int):
     """Trigger AI response generation."""
     try:
