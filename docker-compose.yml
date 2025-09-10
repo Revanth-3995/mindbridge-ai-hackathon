@@ -1,0 +1,112 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: mindbridge_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mindbridge_db}
+      POSTGRES_USER: ${POSTGRES_USER:-mindbridge_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password_123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - mindbridge_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mindbridge_user} -d ${POSTGRES_DB:-mindbridge_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: mindbridge_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - mindbridge_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:latest
+    container_name: mindbridge_adminer
+    ports:
+      - "8080:8080"
+    networks:
+      - mindbridge_network
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  coturn:
+    image: coturn/coturn:latest
+    container_name: mindbridge_coturn
+    environment:
+      TURN_REALM: ${TURN_REALM:-mindbridge.local}
+      TURN_USER: ${TURN_USER:-turnuser}
+      TURN_PASSWORD: ${TURN_PASSWORD:-turnpass123}
+    ports:
+      - "3478:3478/udp"
+      - "49152-65535:49152-65535/udp"
+    networks:
+      - mindbridge_network
+    command: >
+      --listening-port=3478
+      --tls-listening-port=5349
+      --listening-ip=0.0.0.0
+      --external-ip=$$(detect-external-ip)
+      --realm=${TURN_REALM:-mindbridge.local}
+      --server-name=${TURN_REALM:-mindbridge.local}
+      --user=${TURN_USER:-turnuser}:${TURN_PASSWORD:-turnpass123}
+      --lt-cred-mech
+      --no-multicast-peers
+      --no-cli
+      --no-tlsv1
+      --no-tlsv1_1
+      --no-tlsv1_2
+      --no-dtls
+      --no-tls
+      --log-file=stdout
+      --verbose
+      --fingerprint
+      --no-multicast-peers
+      --no-cli
+      --no-tlsv1
+      --no-tlsv1_1
+      --no-tlsv1_2
+      --no-dtls
+      --no-tls
+      --log-file=stdout
+      --verbose
+      --fingerprint
+    healthcheck:
+      test: ["CMD-SHELL", "netstat -an | grep :3478 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  mindbridge_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
