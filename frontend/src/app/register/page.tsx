@@ -24,11 +24,12 @@ export default function RegisterPage() {
     }
     setLoading(true);
     try {
-      await apiClient.post("/api/auth/register", { name, email, password });
+      await apiClient.post("/api/auth/register", { email, password, full_name: name });
       setSuccess("Registration successful. Redirecting to login...");
       setTimeout(() => router.push("/login"), 800);
     } catch (e: any) {
-      const msg = e?.response?.data?.error || e?.message || "Registration failed";
+      const backendDetail = e?.response?.data?.detail;
+      const msg = (typeof backendDetail === "string" && backendDetail) || e?.response?.data?.error || e?.message || "Registration failed";
       setError(msg);
     } finally {
       setLoading(false);

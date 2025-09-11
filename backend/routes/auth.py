@@ -23,9 +23,9 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Email already registered")
 
     new_user = UserModel(
-        username=user.username,
         email=user.email,
         password_hash=hash_password(user.password),
+        full_name=user.full_name,
     )
     db.add(new_user)
     db.commit()
@@ -33,8 +33,8 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
     logger.info(f"User registered: {new_user.email}")
     return UserResponse(
         id=str(new_user.id),
-        username=new_user.email if getattr(new_user, "username", None) is None else new_user.username,
         email=new_user.email,
+        full_name=getattr(new_user, "full_name", None),
         created_at=new_user.created_at.isoformat() if getattr(new_user, "created_at", None) else None,
     )
 
@@ -51,8 +51,8 @@ def login(payload: UserLogin, db: Session = Depends(get_db)):
         access_token=access_token,
         user=UserResponse(
             id=str(user.id),
-            username=user.username,
             email=user.email,
+            full_name=getattr(user, "full_name", None),
             created_at=user.created_at.isoformat() if getattr(user, "created_at", None) else None,
         ),
     )
@@ -72,8 +72,8 @@ def me(authorization: Optional[str] = Header(default=None), db: Session = Depend
         raise HTTPException(status_code=404, detail="User not found")
     return UserResponse(
         id=str(user.id),
-        username=user.username,
         email=user.email,
+        full_name=getattr(user, "full_name", None),
         created_at=user.created_at.isoformat() if getattr(user, "created_at", None) else None,
     )
 

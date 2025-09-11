@@ -188,6 +188,7 @@ class User(Base):
     # Authentication fields
     email = Column(String(255), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)  # bcrypt hashed password
+    full_name = Column(String(255), nullable=True)
     
     # Profile information
     baseline_mood = Column(SQLEnum(MoodLevel), default=MoodLevel.NEUTRAL, nullable=False)

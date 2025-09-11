@@ -54,7 +54,6 @@ async def connect(sid: str, environ: Dict[str, Any], auth: Optional[Dict[str, st
             # Store user info in session
             await sio.save_session(sid, {
                 "user_id": user.id,
-                "username": user.username,
                 "email": user.email,
                 "connected_at": datetime.utcnow().isoformat()
             })
@@ -62,14 +61,13 @@ async def connect(sid: str, environ: Dict[str, Any], auth: Optional[Dict[str, st
             # Join user to their personal room
             await sio.enter_room(sid, f"user_{user.id}")
             
-            logger.info(f"User {user.username} connected with session {sid}")
+            logger.info(f"User {user.email} connected with session {sid}")
             
             # Send connection confirmation
             await sio.emit("connected", {
                 "message": "Successfully connected",
                 "user": {
                     "id": user.id,
-                    "username": user.username,
                     "email": user.email
                 },
                 "timestamp": datetime.utcnow().isoformat()
@@ -92,7 +90,7 @@ async def disconnect(sid: str):
         session_data = await sio.get_session(sid)
         if session_data:
             user_id = session_data.get("user_id")
-            username = session_data.get("username")
+            username = session_data.get("email")
             
             # Leave user room
             await sio.leave_room(sid, f"user_{user_id}")
@@ -102,7 +100,7 @@ async def disconnect(sid: str):
             # Notify other clients if needed
             await sio.emit("user_disconnected", {
                 "user_id": user_id,
-                "username": username,
+                "email": username,
                 "timestamp": datetime.utcnow().isoformat()
             }, room=f"user_{user_id}", skip_sid=sid)
             
@@ -244,13 +242,13 @@ async def typing_start(sid: str, data: Dict[str, Any]):
             return
         
         user_id = session_data["user_id"]
-        username = session_data["username"]
+        username = session_data.get("email")
         session_id = data.get("session_id")
         
         if session_id:
             await sio.emit("user_typing", {
                 "user_id": user_id,
-                "username": username,
+                "email": username,
                 "session_id": session_id,
                 "typing": True,
                 "timestamp": datetime.utcnow().isoformat()
@@ -268,13 +266,13 @@ async def typing_stop(sid: str, data: Dict[str, Any]):
             return
         
         user_id = session_data["user_id"]
-        username = session_data["username"]
+        username = session_data.get("email")
         session_id = data.get("session_id")
         
         if session_id:
             await sio.emit("user_typing", {
                 "user_id": user_id,
-                "username": username,
+                "email": username,
                 "session_id": session_id,
                 "typing": False,
                 "timestamp": datetime.utcnow().isoformat()
@@ -306,7 +304,7 @@ async def get_online_users(sid: str, data: Dict[str, Any]):
             if session_info and session_sid != sid:
                 online_users.append({
                     "user_id": session_info.get("user_id"),
-                    "username": session_info.get("username"),
+                    "email": session_info.get("email"),
                     "connected_at": session_info.get("connected_at")
                 })
         

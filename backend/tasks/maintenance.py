@@ -62,7 +62,7 @@ def backup_user_data():
             for user in users:
                 user_data.append({
                     "id": user.id,
-                    "username": user.username,
+                    "email": user.email,
                     "email": user.email,
                     "created_at": user.created_at.isoformat() if user.created_at else None,
                     "last_login": user.last_login.isoformat() if user.last_login else None
