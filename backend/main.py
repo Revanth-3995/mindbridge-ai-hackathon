@@ -66,6 +66,9 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Celery connection test failed: {e}")
     
     logger.info("Application startup completed")
+    # Log key configuration values
+    logger.info(f"DATABASE_URL in use: {settings.DATABASE_URL}")
+    logger.info(f"ML_SERVICE_URL in use: {settings.ML_SERVICE_URL}")
     
     yield
     
@@ -114,6 +117,10 @@ if os.path.exists(settings.UPLOAD_DIR):
 
 # Include auth router
 app.include_router(auth_router)
+
+# Include ML service router
+from ml_service import router as ml_router
+app.include_router(ml_router)
 
 # Socket.IO integration
 from socketio import ASGIApp

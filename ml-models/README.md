@@ -23,12 +23,12 @@ GPU-optimized FastAPI service for emotion detection, designed for RunPod deploym
 
 2. **Run the service**:
    ```bash
-   uvicorn main:app --reload --port 8001
+   uvicorn main:app --reload --host 0.0.0.0 --port 9000
    ```
 
 3. **Test health endpoint**:
    ```bash
-   curl http://localhost:8001/health
+   curl http://localhost:9000/health
    ```
 
 ### Docker Deployment
@@ -40,12 +40,12 @@ GPU-optimized FastAPI service for emotion detection, designed for RunPod deploym
 
 2. **Run the container**:
    ```bash
-   docker run -p 8000:8000 mindbridge-ml
+   docker run --gpus all -p 9000:9000 mindbridge-ml
    ```
 
 3. **Test the service**:
    ```bash
-   curl http://localhost:8000/health
+   curl http://localhost:9000/health
    ```
 
 ## API Endpoints
@@ -150,7 +150,7 @@ The service detects the following emotions:
 
 2. **Configure RunPod**:
    - Select a GPU-enabled template
-   - Set port 8000 as public
+   - Set port 9000 as public
    - Use the provided Dockerfile
 
 3. **Environment Variables** (optional):
