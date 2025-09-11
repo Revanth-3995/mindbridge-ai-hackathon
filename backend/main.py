@@ -3,7 +3,7 @@ Main FastAPI application with Socket.IO integration.
 Entry point for the Mind Bridge AI backend service.
 """
 
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
@@ -11,12 +11,20 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import logging
 import uvicorn
+import time
+import httpx
 from datetime import datetime
 import os
 
 from config import settings
 from database import init_db, check_db_connection, get_db_info
-from socketio_events import sio
+from socketio_events import sio as legacy_sio
+try:
+    from websockets_local import sio as new_sio, get_redis as get_redis_client
+    sio = new_sio
+except Exception:
+    sio = legacy_sio
+    get_redis_client = None
 from auth import (
     get_current_active_user, User, router as auth_router,
     SecurityMiddleware, RateLimitMiddleware
@@ -65,6 +73,23 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Celery connection test failed: {e}")
     
+    # Probe Redis (if available)
+    if get_redis_client is not None:
+        try:
+            r = await get_redis_client()
+            await r.ping()
+            logger.info("Redis connected")
+        except Exception as e:
+            logger.warning(f"Redis initialization failed: {e}")
+
+    # Probe ML service
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(f"{settings.ML_SERVICE_URL}/health")
+            logger.info(f"ML service health: {resp.status_code}")
+    except Exception as e:
+        logger.warning(f"ML service health probe failed: {e}")
+
     logger.info("Application startup completed")
     # Log key configuration values
     logger.info(f"DATABASE_URL in use: {settings.DATABASE_URL}")
@@ -74,6 +99,13 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down Mind Bridge AI application...")
+    # Cleanup Redis
+    try:
+        if get_redis_client is not None:
+            r = await get_redis_client()
+            await r.aclose()
+    except Exception:
+        pass
     logger.info("Application shutdown completed")
 
 # Create FastAPI application
@@ -111,12 +143,39 @@ app.add_middleware(
     period=settings.RATE_LIMIT_WINDOW
 )
 
+# Request logging and basic metrics
+metrics = {
+    "http_requests_total": 0,
+    "http_errors_total": 0,
+    "http_request_duration_seconds_sum": 0.0,
+}
+
+@app.middleware("http")
+async def logging_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    try:
+        response: Response = await call_next(request)
+        return response
+    except Exception as e:
+        metrics["http_errors_total"] += 1
+        logger.exception(f"Unhandled request error: {e}")
+        raise
+    finally:
+        duration = time.perf_counter() - start
+        metrics["http_requests_total"] += 1
+        metrics["http_request_duration_seconds_sum"] += duration
+
 # Mount static files
 if os.path.exists(settings.UPLOAD_DIR):
     app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
 
-# Include auth router
+# Include auth routers
 app.include_router(auth_router)
+try:
+    from routes.auth import router as simple_auth_router
+    app.include_router(simple_auth_router)
+except Exception as e:
+    logger.warning(f"Simple auth router not loaded: {e}")
 
 # Include ML service router
 from ml_service import router as ml_router
@@ -124,7 +183,9 @@ app.include_router(ml_router)
 
 # Socket.IO integration
 from socketio import ASGIApp
-socketio_app = ASGIApp(sio, app)
+# Expose combined ASGI app for FastAPI + Socket.IO
+sio_app = ASGIApp(sio, app)
+logger.info("Socket.IO ASGI integration initialized and mounted")
 
 # Health check endpoints
 @app.get("/health")
@@ -132,7 +193,24 @@ async def health_check_endpoint():
     """Health check endpoint."""
     db_connected = check_db_connection()
     db_info = get_db_info()
-    
+    # Redis
+    redis_connected = False
+    if get_redis_client is not None:
+        try:
+            r = await get_redis_client()
+            await r.ping()
+            redis_connected = True
+        except Exception:
+            redis_connected = False
+    # ML
+    ml_connected = False
+    try:
+        async with httpx.AsyncClient(timeout=1.0) as client:
+            resp = await client.get(f"{settings.ML_SERVICE_URL}/health")
+            ml_connected = resp.status_code == 200
+    except Exception:
+        ml_connected = False
+
     return {
         "status": "healthy" if db_connected else "unhealthy",
         "timestamp": datetime.utcnow().isoformat(),
@@ -140,8 +218,9 @@ async def health_check_endpoint():
         "database": db_info,
         "services": {
             "database": "connected" if db_connected else "disconnected",
-            "redis": "unknown",  # Could add Redis health check
-            "celery": "unknown"  # Could add Celery health check
+            "redis": "connected" if redis_connected else "disconnected",
+            "celery": "unknown",  # Could add Celery health check
+            "ml_service": "connected" if ml_connected else "disconnected",
         }
     }
 
@@ -179,11 +258,31 @@ async def detailed_health_check():
                 "backend": settings.CELERY_RESULT_BACKEND
             },
             "redis": {
-                "status": "unknown",
+                "status": "connected" if get_redis_client is not None else "unknown",
                 "url": settings.REDIS_URL
+            },
+            "ml_service": {
+                "url": settings.ML_SERVICE_URL,
+                "status": "probe at /health"
             }
         }
     }
+
+@app.get("/metrics")
+async def metrics_endpoint():
+    """Prometheus-compatible metrics exposition (basic)."""
+    lines = [
+        "# HELP http_requests_total Total HTTP requests",
+        "# TYPE http_requests_total counter",
+        f"http_requests_total {metrics['http_requests_total']}",
+        "# HELP http_errors_total Total HTTP errors",
+        "# TYPE http_errors_total counter",
+        f"http_errors_total {metrics['http_errors_total']}",
+        "# HELP http_request_duration_seconds_sum Cumulative request duration in seconds",
+        "# TYPE http_request_duration_seconds_sum counter",
+        f"http_request_duration_seconds_sum {metrics['http_request_duration_seconds_sum']}",
+    ]
+    return Response("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4; charset=utf-8")
 
 # API Routes
 @app.get("/")
@@ -276,7 +375,7 @@ async def socketio_info():
 # Development server
 if __name__ == "__main__":
     uvicorn.run(
-        "main:socketio_app",  # Use socketio_app for Socket.IO support
+        "main:sio_app",  # Use combined ASGI app for Socket.IO + FastAPI
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.DEBUG,
